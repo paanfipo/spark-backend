@@ -6,12 +6,13 @@ from sqlalchemy import func
 import json
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel # Necesario para el Entrenador
+from contextlib import asynccontextmanager
 
 import crud, models, schemas, auth
 from database import engine, get_db
 
 # Crear tablas en la base de datos
-models.Base.metadata.create_all(bind=engine) 
+# models.Base.metadata.create_all(bind=engine) 
 
 app = FastAPI()
 
@@ -37,6 +38,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    models.Base.metadata.create_all(bind=engine)
+    yield
+    # Shutdown (si necesitas cerrar recursos, iría aquí)
+
+app = FastAPI(lifespan=lifespan)
+
 
 # ----------------------------------------------------------------
 # ENDPOINT: ENTRENADOR VIRTUAL (NUEVO)
