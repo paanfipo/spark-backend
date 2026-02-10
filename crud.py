@@ -2,13 +2,13 @@
 print("--- ¡CARGANDO LA VERSIÓN CORRECTA DE CRUD.PY! ---")
 
 from sqlalchemy.orm import Session
-from . import models, schemas
+import models, schemas
 from passlib.context import CryptContext
 import random
 from sqlalchemy import func
 from datetime import datetime
 
-from . import tormenta_de_palabras 
+import tormenta_de_palabras 
 
 # --- Configuración de Seguridad para Contraseñas ---
 # Le decimos a passlib que use el algoritmo bcrypt

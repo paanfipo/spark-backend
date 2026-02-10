@@ -7,8 +7,8 @@ import json
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel # Necesario para el Entrenador
 
-from . import crud, models, schemas, auth
-from .database import engine, get_db
+import crud, models, schemas, auth
+from database import engine, get_db
 
 # Crear tablas en la base de datos
 models.Base.metadata.create_all(bind=engine) 

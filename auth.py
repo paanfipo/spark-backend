@@ -6,8 +6,8 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from . import crud, models
-from .database import get_db
+import crud, models
+from database import get_db
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 # ¡IMPORTANTE! Usa la clave secreta segura que generaste
