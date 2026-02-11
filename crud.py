@@ -12,7 +12,7 @@ from datetime import datetime
 
 
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256"],
+    schemes=["bcrypt"],
     deprecated="auto",
 )
 

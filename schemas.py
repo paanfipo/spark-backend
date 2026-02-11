@@ -1,5 +1,5 @@
 # schemas.py
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 
@@ -9,7 +9,7 @@ class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=72)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     birth_date: Optional[date] = None
