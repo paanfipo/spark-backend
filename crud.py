@@ -8,11 +8,14 @@ import random
 from sqlalchemy import func
 from datetime import datetime
 
-import tormenta_de_palabras 
 
-# --- Configuración de Seguridad para Contraseñas ---
-# Le decimos a passlib que use el algoritmo bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],
+    deprecated="auto",
+)
+
 
 # --- Funciones CRUD para el Usuario ---
 
@@ -424,56 +427,6 @@ GAMES_CATALOG_NEW = [
             "is_primary": False,
             "unit": "ms",
             "description": "Desviación estándar del tiempo de respuesta."
-            }
-        ]
-    },
-    {
-        "game_code": "AT-03",
-        "name": "Enfoca la Flecha",
-        "description": "Usa el teclado para seleccionar la dirección a la que apuntan los objetos, ignorando distractores.",
-        "cognitive_domain": "Atención",
-        "metrics": [
-            {
-                "name": "indice_eficiencia_busqueda_ms",
-                "display_name": "Índice de Eficiencia de Búsqueda",
-                "is_primary": True,
-                "unit": "ms",
-                "description": "Mide la eficiencia combinando velocidad y precisión (TR promedio / Proporción de Aciertos)."
-            },
-            {
-                "name": "total_aciertos",
-                "display_name": "Total de Aciertos",
-                "is_primary": False,
-                "unit": "recuento",
-                "description": "Número total de respuestas correctas."
-            },
-            {
-                "name": "porcentaje_precision_pct",
-                "display_name": "Porcentaje de Precisión",
-                "is_primary": False,
-                "unit": "%",
-                "description": "Porcentaje de aciertos del total de estímulos."
-            },
-            {
-                "name": "total_errores",
-                "display_name": "Total de Errores",
-                "is_primary": False,
-                "unit": "recuento",
-                "description": "Número total de respuestas incorrectas."
-            },
-            {
-                "name": "tiempo_respuesta_promedio_ms",
-                "display_name": "Tiempo de Respuesta Promedio",
-                "is_primary": False,
-                "unit": "ms",
-                "description": "Tiempo promedio para las respuestas correctas."
-            },
-            {
-                "name": "tiempo_recuperacion_error_ms",
-                "display_name": "Tiempo de Recuperación del Error",
-                "is_primary": False,
-                "unit": "ms",
-                "description": "Tiempo extra (TRpost-error - TRpost-acierto) después de un fallo."
             }
         ]
     },
@@ -1293,52 +1246,33 @@ def sync_game_metrics(db: Session, game_code: str):
     if not catalog_game:
         return {"ok": False, "message": f"No existe {game_code} en GAMES_CATALOG_NEW"}
 
-    catalog_names = {m["name"] for m in catalog_game["metrics"]}
-    existing_metrics = {m.name: m for m in game.metrics}
+    catalog_metrics = catalog_game.get("metrics", [])
+    catalog_names = {m["name"] for m in catalog_metrics}
+
+    existing_metrics = {m.name: m for m in (game.metrics or [])}
 
     created = []
     deleted = []
 
-    # 1️⃣ Eliminar métricas que existen en BD pero NO en el catálogo teórico
+    # 1) Eliminar métricas en BD que NO están en el catálogo
     for name, metric in existing_metrics.items():
         if name not in catalog_names:
             db.delete(metric)
             deleted.append(name)
 
-    # 2️⃣ Insertar métricas que faltan
-    for metric_data in catalog_game["metrics"]:
-        if metric_data["name"] not in existing_metrics:
-            db_metric = models.Metric(**metric_data, game_id=game.id)
+    # 2) Insertar métricas del catálogo que faltan en BD
+    for metric_data in catalog_metrics:
+        name = metric_data["name"]
+        if name not in existing_metrics:
+            data = dict(metric_data)
+            data.pop("id", None)       # por si aparece
+            data.pop("game_id", None)  # se asigna abajo
+            db_metric = models.Metric(**data, game_id=game.id)
             db.add(db_metric)
-            created.append(metric_data["name"])
+            created.append(name)
 
-    db.commit()
-    return {
-        "ok": True,
-        "created": created,
-        "deleted": deleted
-    }
-
-    game = get_game_by_code(db, game_code=game_code)
-    if not game:
-        return {"ok": False, "message": f"No existe el juego {game_code}"}
-
-    catalog_game = next((g for g in GAMES_CATALOG_NEW if g["game_code"] == game_code), None)
-    if not catalog_game:
-        return {"ok": False, "message": f"No existe {game_code} en GAMES_CATALOG_NEW"}
-
-    existing_names = {m.name for m in game.metrics}
-
-    # 1) Insertar las que faltan
-    created = []
-    for metric_data in catalog_game["metrics"]:
-        if metric_data["name"] not in existing_names:
-            db_metric = models.Metric(**metric_data, game_id=game.id)
-            db.add(db_metric)
-            created.append(metric_data["name"])
-
-    # 2) Asegurar que SOLO una quede como principal (la del catálogo)
-    primary_name = next((m["name"] for m in catalog_game["metrics"] if m.get("is_primary")), None)
+    # 3) (Opcional) Forzar "una principal" según catálogo
+    primary_name = next((m["name"] for m in catalog_metrics if m.get("is_primary")), None)
     if primary_name:
         db.query(models.Metric).filter(models.Metric.game_id == game.id).update({"is_primary": False})
         db.query(models.Metric).filter(
@@ -1347,8 +1281,9 @@ def sync_game_metrics(db: Session, game_code: str):
         ).update({"is_primary": True})
 
     db.commit()
-    return {"ok": True, "created": created, "primary": primary_name}
+    return {"ok": True, "created": created, "deleted": deleted, "primary": primary_name}
 
+    
 
 def get_games(db: Session, skip: int = 0, limit: int = 100):
     games = db.query(models.Game).offset(skip).limit(limit).all()
@@ -1748,7 +1683,7 @@ def get_level_data(db: Session, game_id: int, level_number: int):
     return db.query(models.GameLevel).filter_by(game_id=game_id, level_number=level_number).first()
 
 
-""""
+"""
 def check_user_sentence(db: Session, gameplay_id: int, user_sentence: str):
     db_gameplay = db.query(models.GamePlay).filter(models.GamePlay.id == gameplay_id).first()
     if not db_gameplay:
@@ -1861,102 +1796,3 @@ def regress_to_previous_level(db: Session, gameplay_id: int):
     return db_gameplay
 
 
-# --- LÓGICA PARA "TORMENTA DE PALABRAS" ---
-
-# --- LÓGICA PARA "TORMENTA DE PALABRAS" ---
-def populate_word_storm_levels(db: Session):
-    """
-    Popula GameLevel para 'Tormenta de Palabras' usando el ID real del juego
-    (buscado por GAME_CODE), evitando depender de un ID fijo.
-    """
-    # 1) Buscar el juego por código (LEN-04)
-    game = get_game_by_code(db, game_code=tormenta_de_palabras.GAME_CODE)  # "LEN-04"
-    if not game:
-        # Si aún no existe, poblar catálogo y volver a buscar
-        populate_games(db)
-        game = get_game_by_code(db, game_code=tormenta_de_palabras.GAME_CODE)
-        if not game:
-            return {"message": "No se encontró el juego Tormenta de Palabras (LEN-04)."}
-
-    game_id = game.id  # ← ID real en BD
-
-    # 2) Insertar niveles con ese game_id real
-    levels_created_count = 0
-    for level_info in tormenta_de_palabras.WORD_STORM_LEVELS:
-        db_level = db.query(models.GameLevel).filter_by(
-            game_id=game_id,
-            level_number=level_info["level_number"]
-        ).first()
-        if not db_level:
-            new_level = models.GameLevel(
-                game_id=game_id,
-                level_number=level_info["level_number"],
-                phase=level_info["phase"],
-                level_data=level_info["level_data"]
-            )
-            db.add(new_level)
-            levels_created_count += 1
-
-    db.commit()
-    return {"message": "Niveles de Tormenta de Palabras añadidos.", "new_levels_added": levels_created_count}
-
-    """
-    Popula la tabla GameLevel con los niveles definidos en el archivo
-    de lógica de Tormenta de Palabras.
-    """
-    levels_created_count = 0
-    game_id = tormenta_de_palabras.GAME_ID
-    
-    for level_info in tormenta_de_palabras.WORD_STORM_LEVELS:
-        db_level = db.query(models.GameLevel).filter_by(
-            game_id=game_id, 
-            level_number=level_info["level_number"]
-        ).first()
-        if not db_level:
-            new_level = models.GameLevel(
-                game_id=game_id,
-                level_number=level_info["level_number"],
-                phase=level_info["phase"],
-                level_data=level_info["level_data"]
-            )
-            db.add(new_level)
-            levels_created_count += 1
-            
-    db.commit()
-    return {"message": "Niveles de Tormenta de Palabras añadidos.", "new_levels_added": levels_created_count}
-
-def submit_word_storm_answers(db: Session, gameplay_id: int, submitted_words: list[str]):
-    """
-    Procesa las respuestas de una partida de Tormenta de Palabras, calcula
-    las métricas y actualiza la base de datos.
-    """
-    # 1. Obtener la partida y el nivel actual
-    db_gameplay = db.query(models.GamePlay).filter(models.GamePlay.id == gameplay_id).first()
-    if not db_gameplay:
-        return None # O lanzar una excepción
-
-    current_level = db_gameplay.current_level or 1
-    level_config = get_level_data(db, game_id=db_gameplay.game_id, level_number=current_level)
-    if not level_config:
-        return None # O lanzar una excepción
-
-    # 2. Usar la función de lógica del juego para procesar los resultados
-    results = tormenta_de_palabras.process_word_storm_results(
-        submitted_words,
-        level_config.level_data
-    )
-
-    # 3. Actualizar la partida en la base de datos
-    db_gameplay.score = (db_gameplay.score or 0) + results["total_score"]
-    
-    # Guardar los resultados detallados del nivel
-    # Es buena práctica guardar los resultados por nivel
-    current_results = db_gameplay.results_data or {}
-    current_results[f"level_{current_level}"] = results
-    
-    db_gameplay.results_data = current_results
-    db.add(db_gameplay)
-    db.commit()
-    db.refresh(db_gameplay)
-    
-    return results

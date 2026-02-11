@@ -6,8 +6,10 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-import crud, models
+import models
 from database import get_db
+from passlib.context import CryptContext
+
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 # ¡IMPORTANTE! Usa la clave secreta segura que generaste
@@ -31,6 +33,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 # --- FUNCIÓN DE SEGURIDAD (DEPENDENCIA) ---
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    import crud
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -48,3 +51,14 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],
+    deprecated="auto",
+)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
